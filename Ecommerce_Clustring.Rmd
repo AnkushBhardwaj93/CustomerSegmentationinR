@@ -1,0 +1,173 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r Upload CSV file}
+ecom<-read.csv(file.choose())
+class(ecom)
+```
+
+
+```{r CheckData}
+#Here i just verified type of data, length of data  and see any missing values
+
+head(ecom)
+ecom$X<-NULL
+glimpse(ecom)
+summary(ecom)
+```
+
+```{r verifyingMultipleInvoiceID}
+#There can be cases where we can have multiple invoice IDs as Description column only hold one purcahsed item.
+length(unique(ecom$InvoiceNo))
+ecom[ecom$InvoiceNo=="536365",]
+```
+```{r Remove negative values in unit price}
+#Negative values are not accepted in unit price, so they might be mistakes , droping all those records(as the count is only 2).
+
+ecom<-ecom %>%
+  mutate(UnitPrice=replace(UnitPrice,UnitPrice<0,NA))
+
+length(ecom$UnitPrice[ecom$UnitPrice=="NA"])
+ecom<-ecom %>%
+  drop_na()
+summary(ecom)
+ecom3<-ecom
+#creating ecom3 from ecom to perform all operation on ecom3 and keep ecom protected.
+```
+
+
+```{r GroupingBasedonCutomerID}
+ecom3<-ecom3 %>%
+  group_by(CustomerID)
+
+  
+```
+
+
+```{r Data_Recoding}
+#Data recoding
+library(lubridate)
+ecom<-ecom %>%
+  mutate(InvoiceNo = as.factor(InvoiceNo), StockCode = as.factor(StockCode),
+          CustomerID = as.factor(CustomerID),
+         Country = as.factor(Country)
+         )
+ecom$InvoiceDate = parse_date_time(ecom$InvoiceDate, orders = "dmy")
+
+ecom<-ecom %>%
+mutate(totalamount=Quantity*UnitPrice)
+
+  
+glimpse(ecom)
+summary(ecom)
+head(ecom)
+
+```
+
+
+
+
+
+```{r RMS}
+#RMS
+
+ecom_rfm<-ecom %>%
+ 
+  group_by(CustomerID) %>%
+  summarise(recency=as.numeric(as_datetime("2018-01-01")- max(InvoiceDate)),
+             frequenci = n_distinct(InvoiceNo),monetry = sum(totalamount)/n_distinct(InvoiceNo))
+        
+
+summary(ecom_rfm)
+
+kable(head(ecom_rfm))
+
+ecom_rfm<-ecom_rfm %>%
+  mutate(monetry= replace(monetry,monetry<=0,NA))
+
+ecom_rfm<-ecom_rfm %>%
+  drop_na()
+
+
+```
+
+
+```{r Historical cluster}
+
+ecom_rfm_histo<-ecom_rfm
+hist(ecom_rfm_histo$recency)
+
+#ecom_rfm$CustomerID<-NULL
+class(ecom_rfm_histo)
+norm_ecom<-scale(ecom_rfm_histo)
+d<-dist(norm_ecom,method = "euclidean")
+fit1<-hclust(d,method = "ward.D2")
+plot(fit1)
+
+#nc<-NbClust(norm_ecom,distance="euclidean",min.nc=2,max.nc=15,method="kmeans",index="alllong")
+
+groups<-cutree(fit1,k=6) 
+#rect.hclust(fit1,k=2,border="red") 
+mem<-as.matrix(groups) 
+hclustering<-data.frame(norm_ecom,mem) 
+hclustering 
+
+
+```
+
+
+
+
+
+
+```{r Kmeans}
+fit_kem<-kmeans(ecom_rfm[,-1],6)
+kmeans<-data.frame(ecom_rfm,fit_kem$cluster)
+kmeans
+#profilling
+
+
+aggregate(kmeans[,1:4], by = list(fit_kem$cluster), FUN = mean)
+#aggregate(kmeans[,1:4], by = list(fit_kem$cluster), FUN = median)
+
+count(kmeans[kmeans$fit_kem.cluster=="1",]) +count(kmeans[kmeans$fit_kem.cluster=="4",])
+
+
+plot(kmeans)
+```
+
+
+
+
+```{r Mutiplegraphs analysis}
+library(ggplot2)
+ggplot(data = kmeans) + geom_bar(mapping = aes(x = fit_kem.cluster))
+
+
+kmeans[kmeans$monetry==max(kmeans$monetry),]
+
+
+smaller<-kmeans %>%
+filter(recency<300)
+ggplot(data = smaller, mapping = aes(x = recency)) + geom_histogram(binwidth = 1)
+ggplot(data = smaller, mapping = aes(x = recency, y = frequenci)) + geom_point()
+ggplot(data = smaller, mapping = aes(x = recency)) + geom_freqpoly(binwidth = 1)
+ggplot(data = smaller, mapping = aes(x = frequenci)) + geom_freqpoly(binwidth = 1)
+```
+```{r}
+# Use the following clustering algorithms:
+# 
+# K means - Done
+# Hierarchical - Done
+# • Identify the right number of customer segments. - 6 Customer Segments
+# • Provide the number of customers who are highly valued. - Group 1 and Group 4 = 64 Customers
+# • Identify the clustering algorithm that gives maximum accuracy and explains robust clusters.
+```
+
